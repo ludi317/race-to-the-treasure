@@ -374,24 +374,3 @@ pub fn gen_treasure(size: u32) -> Image {
     make_image(size, data)
 }
 
-pub fn gen_start_marker(size: u32) -> Image {
-    let mut data = vec![0u8; (size * size * 4) as usize];
-    let s = size as f32;
-    fill(&mut data, size, TRANSPARENT);
-    // orange arrow pointing down-right (toward the board interior)
-    let cx = s * 0.5;
-    let cy = s * 0.5;
-    let r = s * 0.3;
-    for y in 0..size {
-        for x in 0..size {
-            let fx = x as f32;
-            let fy = y as f32;
-            let dx = fx - cx;
-            let dy = fy - cy;
-            if dx.abs() < r && dy.abs() < r && (dx + dy) > -r * 0.4 && (dx + dy) < r * 0.9 {
-                put(&mut data, size, x, y, [235, 165, 40, 255]);
-            }
-        }
-    }
-    make_image(size, data)
-}

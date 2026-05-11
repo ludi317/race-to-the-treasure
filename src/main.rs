@@ -16,20 +16,21 @@ struct SpriteHandles {
     snack: Handle<Image>,
     ogre: Handle<Image>,
     treasure: Handle<Image>,
-    start_marker: Handle<Image>,
 }
 
-const GRID_W: i32 = 6;
+const GRID_W: i32 = 7; // columns A..G — G is the Ogre's Path column
+const OGRE_COL: i32 = GRID_W - 1;
 const LABELED_ROWS: i32 = 6;
 const GRID_H: i32 = LABELED_ROWS + 2;
 const FIRST_LABELED_Y: i32 = 1;
 const LAST_LABELED_Y: i32 = FIRST_LABELED_Y + LABELED_ROWS - 1;
 const CELL: f32 = 72.0;
-const OGRE_TRACK_LEN: usize = 10;
+const OGRE_TRACK_LEN: usize = GRID_H as usize; // 8 slots, G0..G7; 10 ogre cards in deck is fine (surplus never drawn once ogre wins)
 const KEYS_NEEDED: u32 = 3;
 
 const START_CELL: IVec2 = IVec2::new(0, 0);
-const END_CELL: IVec2 = IVec2::new(GRID_W - 1, GRID_H - 1);
+// END is the bottom of column G — shared with the last ogre-track slot.
+const END_CELL: IVec2 = IVec2::new(OGRE_COL, GRID_H - 1);
 
 // Direction bits
 const N: u8 = 1;
@@ -190,11 +191,19 @@ fn world_to_cell(world: Vec2) -> Option<IVec2> {
     }
 }
 
-fn is_legal(board: &Board, cell: IVec2, card: PathCard) -> bool {
+fn is_legal(board: &Board, ogre: &OgreTrack, cell: IVec2, card: PathCard) -> bool {
     if cell.x < 0 || cell.x >= GRID_W || cell.y < 0 || cell.y >= GRID_H {
         return false;
     }
     if board.get(cell).is_some() {
+        return false;
+    }
+    // Column G is the Ogre's Path — path cards cannot land there, except on END (G7).
+    if cell.x == OGRE_COL && cell != END_CELL {
+        return false;
+    }
+    // END is legal only once the ogre has NOT already claimed it.
+    if cell == END_CELL && ogre.placed >= OGRE_TRACK_LEN {
         return false;
     }
     if !board.any_card() {
@@ -215,41 +224,6 @@ fn is_legal(board: &Board, cell: IVec2, card: PathCard) -> bool {
     false
 }
 
-fn path_connects(board: &Board) -> bool {
-    if board.get(START_CELL).is_none() || board.get(END_CELL).is_none() {
-        return false;
-    }
-    let mut seen = vec![vec![false; GRID_W as usize]; GRID_H as usize];
-    let mut stack = vec![START_CELL];
-    seen[START_CELL.y as usize][START_CELL.x as usize] = true;
-    while let Some(cur) = stack.pop() {
-        if cur == END_CELL {
-            return true;
-        }
-        let Some(card) = board.get(cur) else {
-            continue;
-        };
-        for d in [N, E, S, W] {
-            if card.openings() & d != 0 {
-                let next = cur + dir_offset(d);
-                if next.x < 0 || next.x >= GRID_W || next.y < 0 || next.y >= GRID_H {
-                    continue;
-                }
-                if seen[next.y as usize][next.x as usize] {
-                    continue;
-                }
-                if let Some(nc) = board.get(next) {
-                    if nc.openings() & opposite(d) != 0 {
-                        seen[next.y as usize][next.x as usize] = true;
-                        stack.push(next);
-                    }
-                }
-            }
-        }
-    }
-    false
-}
-
 fn build_deck() -> Vec<CardKind> {
     let mut v = Vec::with_capacity(37);
     // 27 path cards: 9 of each shape, per the box.
@@ -258,7 +232,9 @@ fn build_deck() -> Vec<CardKind> {
         v.push(CardKind::Path(Shape::Curve));
         v.push(CardKind::Path(Shape::Tee));
     }
-    for _ in 0..OGRE_TRACK_LEN {
+    // 10 ogre cards per the box; the loss condition fires on the 8th placement (covering G7),
+    // so the extras act as insurance against unlucky shuffles where ogres cluster early.
+    for _ in 0..10 {
         v.push(CardKind::Ogre);
     }
     v.shuffle(&mut thread_rng());
@@ -266,19 +242,41 @@ fn build_deck() -> Vec<CardKind> {
 }
 
 fn random_free_cells(count: usize, exclude: &[IVec2]) -> Vec<IVec2> {
-    // Keys and the snack may only land on numbered rows (labeled 1..=6, which is y in FIRST_LABELED_Y..=LAST_LABELED_Y).
+    // Keys and the snack may only land on the playable area: labeled rows (1..=6) and columns A..F.
+    // Column G is the Ogre's Path and is off-limits, as are START and END.
     let mut pool: Vec<IVec2> = (FIRST_LABELED_Y..=LAST_LABELED_Y)
-        .flat_map(|y| (0..GRID_W).map(move |x| IVec2::new(x, y)))
+        .flat_map(|y| (0..OGRE_COL).map(move |x| IVec2::new(x, y)))
         .filter(|c| *c != START_CELL && *c != END_CELL && !exclude.contains(c))
         .collect();
     pool.shuffle(&mut thread_rng());
     pool.into_iter().take(count).collect()
 }
 
+fn reset_game(
+    board: &mut Board,
+    deck: &mut Deck,
+    ogre: &mut OgreTrack,
+    phase: &mut Phase,
+    current: &mut CurrentDraw,
+) {
+    *board = Board::new();
+    let keys = random_free_cells(4, &[]);
+    let snack_pool = random_free_cells(1, &keys);
+    board.keys = keys;
+    board.snack = snack_pool.first().copied();
+    deck.cards = build_deck();
+    ogre.placed = 0;
+    *phase = Phase::WaitingDraw;
+    current.card = None;
+}
+
 fn setup(
     mut commands: Commands,
     mut board: ResMut<Board>,
     mut deck: ResMut<Deck>,
+    mut ogre: ResMut<OgreTrack>,
+    mut phase: ResMut<Phase>,
+    mut current: ResMut<CurrentDraw>,
     mut images: ResMut<Assets<Image>>,
 ) {
     commands.spawn(Camera2d);
@@ -291,17 +289,10 @@ fn setup(
         snack: images.add(sprites::gen_snack(SPRITE_SIZE)),
         ogre: images.add(sprites::gen_ogre(SPRITE_SIZE)),
         treasure: images.add(sprites::gen_treasure(SPRITE_SIZE)),
-        start_marker: images.add(sprites::gen_start_marker(SPRITE_SIZE)),
     };
     commands.insert_resource(handles);
 
-    // Setup keys and snack positions
-    let keys = random_free_cells(4, &[]);
-    let snack_pool = random_free_cells(1, &keys);
-    board.keys = keys;
-    board.snack = snack_pool.first().copied();
-
-    deck.cards = build_deck();
+    reset_game(&mut board, &mut deck, &mut ogre, &mut phase, &mut current);
 
     // HUD text (Text2d at top of screen)
     commands.spawn((
@@ -318,7 +309,7 @@ fn setup(
     // Bottom help
     commands.spawn((
         Text2d::new(
-            "SPACE: draw   R: rotate   LMB: place   1: use snack   ESC: discard unplayable card",
+            "SPACE: draw   R: rotate   LMB: place   1: use snack   ESC: discard   N: new game",
         ),
         TextFont {
             font_size: 14.0,
@@ -331,16 +322,6 @@ fn setup(
 
 fn color_water() -> Color {
     Color::srgb(0.10, 0.40, 0.50)
-}
-fn color_water_edge() -> Color {
-    // Subtly darker for the two unnumbered rows (where keys/snacks can't land).
-    Color::srgb(0.07, 0.32, 0.42)
-}
-fn color_start() -> Color {
-    Color::srgb(0.9, 0.75, 0.25)
-}
-fn color_end() -> Color {
-    Color::srgb(0.85, 0.3, 0.2)
 }
 fn color_ogre_cell() -> Color {
     Color::srgb(0.75, 0.15, 0.15)
@@ -403,15 +384,11 @@ fn redraw_board(
     for y in 0..GRID_H {
         for x in 0..GRID_W {
             let cell = IVec2::new(x, y);
-            let is_labeled = (FIRST_LABELED_Y..=LAST_LABELED_Y).contains(&y);
-            let base = if cell == START_CELL {
-                color_start()
-            } else if cell == END_CELL {
-                color_end()
-            } else if is_labeled {
-                color_water()
+            let base = if cell == END_CELL || x == OGRE_COL {
+                // Ogre's Path column (G) and the shared END cell (G7) render in ogre red.
+                color_ogre_cell()
             } else {
-                color_water_edge()
+                color_water()
             };
             let pos = cell_to_world(cell);
             commands.spawn((
@@ -426,49 +403,16 @@ fn redraw_board(
         }
     }
 
-    // Column labels (A..F above the top unnumbered row)
-    for x in 0..GRID_W {
-        let letter = (b'A' + x as u8) as char;
-        let pos = cell_to_world(IVec2::new(x, 0)) + Vec2::new(0.0, CELL / 2.0 + 12.0);
-        commands.spawn((
-            Text2d::new(letter.to_string()),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(Color::srgb(1.0, 0.85, 0.2)),
-            Transform::from_translation(pos.extend(5.0)),
-            BoardViz,
-        ));
-    }
-    // Row labels (only for the 6 labeled rows)
-    for y in FIRST_LABELED_Y..=LAST_LABELED_Y {
-        let label = (y - FIRST_LABELED_Y + 1).to_string();
-        let pos = cell_to_world(IVec2::new(0, y)) + Vec2::new(-CELL / 2.0 - 14.0, 0.0);
-        commands.spawn((
-            Text2d::new(label),
-            TextFont {
-                font_size: 16.0,
-                ..default()
-            },
-            TextColor(Color::srgb(1.0, 0.85, 0.2)),
-            Transform::from_translation(pos.extend(5.0)),
-            BoardViz,
-        ));
-    }
-
-    // Start marker
+    // Start marker — a horizontal (E|W) straight path tile just to the LEFT of A0,
+    // signalling that the first card placed on A0 must have a West opening.
     {
-        let pos = cell_to_world(START_CELL);
-        commands.spawn((
-            Sprite {
-                image: handles.start_marker.clone(),
-                custom_size: Some(Vec2::splat(CELL * 0.75)),
-                ..default()
-            },
-            Transform::from_translation(pos.extend(0.3)),
-            BoardViz,
-        ));
+        let a0 = cell_to_world(START_CELL);
+        let stub_pos = a0 + Vec2::new(-CELL, 0.0);
+        let stub_card = PathCard {
+            shape: Shape::Straight,
+            rotation: 1, // rotate N|S → E|W
+        };
+        spawn_card_on(&mut commands, &handles, stub_pos, stub_card, 1.0, false, 1.0);
     }
     // Treasure chest on END cell
     {
@@ -524,43 +468,34 @@ fn redraw_board(
         }
     }
 
-    // Ogre track along the right side of the board
-    let track_x = CELL * GRID_W as f32 / 2.0 + 40.0;
-    let track_top = CELL * GRID_H as f32 / 2.0;
-    for i in 0..OGRE_TRACK_LEN {
-        let y = track_top - i as f32 * 38.0 - 18.0;
-        // empty slot: red square
+    // Ogre's Path: ogre cards fill column G top-to-bottom (G0..G7).
+    for i in 0..ogre.placed.min(OGRE_TRACK_LEN) {
+        let cell = IVec2::new(OGRE_COL, i as i32);
+        let pos = cell_to_world(cell);
         commands.spawn((
             Sprite {
-                color: color_ogre_cell(),
-                custom_size: Some(Vec2::new(36.0, 36.0)),
+                image: handles.ogre.clone(),
+                custom_size: Some(Vec2::splat(CELL - 6.0)),
                 ..default()
             },
-            Transform::from_xyz(track_x, y, 0.0),
+            Transform::from_translation(pos.extend(1.0)),
             BoardViz,
         ));
-        if i < ogre.placed {
-            commands.spawn((
-                Sprite {
-                    image: handles.ogre.clone(),
-                    custom_size: Some(Vec2::new(34.0, 34.0)),
-                    ..default()
-                },
-                Transform::from_xyz(track_x, y, 1.0),
-                BoardViz,
-            ));
-        }
     }
-    commands.spawn((
-        Text2d::new("OGRE"),
-        TextFont {
-            font_size: 14.0,
-            ..default()
-        },
-        TextColor(Color::WHITE),
-        Transform::from_xyz(track_x, track_top + 10.0, 1.0),
-        BoardViz,
-    ));
+    // "OGRE" label inside the top unnumbered cell of column G, matching the real board's "OGR" text.
+    if ogre.placed == 0 {
+        let pos = cell_to_world(IVec2::new(OGRE_COL, 0));
+        commands.spawn((
+            Text2d::new("OGRE"),
+            TextFont {
+                font_size: 14.0,
+                ..default()
+            },
+            TextColor(Color::WHITE),
+            Transform::from_translation(pos.extend(2.0)),
+            BoardViz,
+        ));
+    }
 }
 
 fn input_system(
@@ -574,6 +509,12 @@ fn input_system(
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
 ) {
+    // New game — works in any phase, including Won/LostOgre.
+    if keys.just_pressed(KeyCode::KeyN) {
+        reset_game(&mut board, &mut deck, &mut ogre, &mut phase, &mut current);
+        return;
+    }
+
     if *phase == Phase::Won || *phase == Phase::LostOgre {
         return;
     }
@@ -639,7 +580,7 @@ fn input_system(
         };
 
         let card_now = current.card.unwrap();
-        if is_legal(&board, cell, card_now) {
+        if is_legal(&board, &ogre, cell, card_now) {
             board.set(cell, card_now);
             // collect key or snack
             if board.keys.contains(&cell) {
@@ -656,7 +597,7 @@ fn input_system(
             current.card = None;
             *phase = Phase::WaitingDraw;
 
-            if cell == END_CELL && path_connects(&board) && board.keys_collected >= KEYS_NEEDED {
+            if cell == END_CELL && board.keys_collected >= KEYS_NEEDED {
                 *phase = Phase::Won;
             }
         }
@@ -669,6 +610,7 @@ fn ghost_system(
     phase: Res<Phase>,
     current: Res<CurrentDraw>,
     board: Res<Board>,
+    ogre: Res<OgreTrack>,
     handles: Option<Res<SpriteHandles>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
@@ -701,7 +643,7 @@ fn ghost_system(
         return;
     };
     let pos = cell_to_world(cell);
-    let alpha = if is_legal(&board, cell, card) {
+    let alpha = if is_legal(&board, &ogre, cell, card) {
         0.75
     } else {
         0.3
