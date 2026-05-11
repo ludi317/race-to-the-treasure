@@ -1,8 +1,10 @@
 # Race to the Treasure!
 
-A Bevy implementation of the cooperative kids' board game [Race to the Treasure!](https://peaceablekingdom.com/games/race-to-the-treasure/) by Peaceable Kingdom.
+A Bevy implementation of the cooperative kids' board game [Race to the Treasure!](https://www.mindware.orientaltrading.com/race-to-the-treasure-peaceable-kingdom-cooperative-board-game-a2-GMC2.fltr?keyword=race%2bto%2bthe%2btreasure) by Peaceable Kingdom.
 
 Beat the Ogre to the treasure by building a continuous path from START to END across a 6×6 grid while collecting 3 keys along the way.
+
+![Screenshot](screenshot.png)
 
 ## Run
 
