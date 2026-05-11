@@ -11,6 +11,7 @@ const SPRITE_SIZE: u32 = 128;
 struct SpriteHandles {
     path_straight: Handle<Image>,
     path_curve: Handle<Image>,
+    path_tee: Handle<Image>,
     key: Handle<Image>,
     snack: Handle<Image>,
     ogre: Handle<Image>,
@@ -19,8 +20,11 @@ struct SpriteHandles {
 }
 
 const GRID_W: i32 = 6;
-const GRID_H: i32 = 6;
-const CELL: f32 = 80.0;
+const LABELED_ROWS: i32 = 6;
+const GRID_H: i32 = LABELED_ROWS + 2;
+const FIRST_LABELED_Y: i32 = 1;
+const LAST_LABELED_Y: i32 = FIRST_LABELED_Y + LABELED_ROWS - 1;
+const CELL: f32 = 72.0;
 const OGRE_TRACK_LEN: usize = 10;
 const KEYS_NEEDED: u32 = 3;
 
@@ -73,6 +77,7 @@ fn rotate_dirs(d: u8, r: u8) -> u8 {
 enum Shape {
     Straight,
     Curve,
+    Tee,
 }
 
 #[derive(Copy, Clone, Debug, Component)]
@@ -86,6 +91,7 @@ impl PathCard {
         let base = match self.shape {
             Shape::Straight => N | S,
             Shape::Curve => N | E,
+            Shape::Tee => N | E | S,
         };
         rotate_dirs(base, self.rotation)
     }
@@ -192,7 +198,8 @@ fn is_legal(board: &Board, cell: IVec2, card: PathCard) -> bool {
         return false;
     }
     if !board.any_card() {
-        return cell == START_CELL;
+        // First card must be on START and have a West opening (entering from off-board).
+        return cell == START_CELL && card.openings() & W != 0;
     }
     let op = card.openings();
     for d in [N, E, S, W] {
@@ -245,12 +252,11 @@ fn path_connects(board: &Board) -> bool {
 
 fn build_deck() -> Vec<CardKind> {
     let mut v = Vec::with_capacity(37);
-    // 27 path cards: split roughly evenly between straight and curve
-    for _ in 0..13 {
+    // 27 path cards: 9 of each shape, per the box.
+    for _ in 0..9 {
         v.push(CardKind::Path(Shape::Straight));
-    }
-    for _ in 0..14 {
         v.push(CardKind::Path(Shape::Curve));
+        v.push(CardKind::Path(Shape::Tee));
     }
     for _ in 0..OGRE_TRACK_LEN {
         v.push(CardKind::Ogre);
@@ -260,7 +266,8 @@ fn build_deck() -> Vec<CardKind> {
 }
 
 fn random_free_cells(count: usize, exclude: &[IVec2]) -> Vec<IVec2> {
-    let mut pool: Vec<IVec2> = (0..GRID_H)
+    // Keys and the snack may only land on numbered rows (labeled 1..=6, which is y in FIRST_LABELED_Y..=LAST_LABELED_Y).
+    let mut pool: Vec<IVec2> = (FIRST_LABELED_Y..=LAST_LABELED_Y)
         .flat_map(|y| (0..GRID_W).map(move |x| IVec2::new(x, y)))
         .filter(|c| *c != START_CELL && *c != END_CELL && !exclude.contains(c))
         .collect();
@@ -279,6 +286,7 @@ fn setup(
     let handles = SpriteHandles {
         path_straight: images.add(sprites::gen_path_straight(SPRITE_SIZE)),
         path_curve: images.add(sprites::gen_path_curve(SPRITE_SIZE)),
+        path_tee: images.add(sprites::gen_path_tee(SPRITE_SIZE)),
         key: images.add(sprites::gen_key(SPRITE_SIZE)),
         snack: images.add(sprites::gen_snack(SPRITE_SIZE)),
         ogre: images.add(sprites::gen_ogre(SPRITE_SIZE)),
@@ -324,6 +332,10 @@ fn setup(
 fn color_water() -> Color {
     Color::srgb(0.10, 0.40, 0.50)
 }
+fn color_water_edge() -> Color {
+    // Subtly darker for the two unnumbered rows (where keys/snacks can't land).
+    Color::srgb(0.07, 0.32, 0.42)
+}
 fn color_start() -> Color {
     Color::srgb(0.9, 0.75, 0.25)
 }
@@ -346,6 +358,7 @@ fn spawn_card_on(
     let handle = match card.shape {
         Shape::Straight => handles.path_straight.clone(),
         Shape::Curve => handles.path_curve.clone(),
+        Shape::Tee => handles.path_tee.clone(),
     };
     // rotation: each step = 90° clockwise. Bevy +Z rot is CCW in screen space, so negate.
     let angle = -std::f32::consts::FRAC_PI_2 * card.rotation as f32;
@@ -390,12 +403,15 @@ fn redraw_board(
     for y in 0..GRID_H {
         for x in 0..GRID_W {
             let cell = IVec2::new(x, y);
+            let is_labeled = (FIRST_LABELED_Y..=LAST_LABELED_Y).contains(&y);
             let base = if cell == START_CELL {
                 color_start()
             } else if cell == END_CELL {
                 color_end()
-            } else {
+            } else if is_labeled {
                 color_water()
+            } else {
+                color_water_edge()
             };
             let pos = cell_to_world(cell);
             commands.spawn((
@@ -410,7 +426,7 @@ fn redraw_board(
         }
     }
 
-    // Row/column labels
+    // Column labels (A..F above the top unnumbered row)
     for x in 0..GRID_W {
         let letter = (b'A' + x as u8) as char;
         let pos = cell_to_world(IVec2::new(x, 0)) + Vec2::new(0.0, CELL / 2.0 + 12.0);
@@ -425,10 +441,12 @@ fn redraw_board(
             BoardViz,
         ));
     }
-    for y in 0..GRID_H {
+    // Row labels (only for the 6 labeled rows)
+    for y in FIRST_LABELED_Y..=LAST_LABELED_Y {
+        let label = (y - FIRST_LABELED_Y + 1).to_string();
         let pos = cell_to_world(IVec2::new(0, y)) + Vec2::new(-CELL / 2.0 - 14.0, 0.0);
         commands.spawn((
-            Text2d::new((y + 1).to_string()),
+            Text2d::new(label),
             TextFont {
                 font_size: 16.0,
                 ..default()
@@ -708,6 +726,7 @@ fn hud_system(
             let shape = match current.card.unwrap().shape {
                 Shape::Straight => "STRAIGHT",
                 Shape::Curve => "CURVE",
+                Shape::Tee => "T-SHAPE",
             };
             format!(
                 "Placing {} (rot {}). R to rotate, click to place, ESC to discard.",
@@ -735,7 +754,7 @@ fn main() {
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 title: "Race to the Treasure!".into(),
-                resolution: (900.0, 800.0).into(),
+                resolution: (900.0, 820.0).into(),
                 ..default()
             }),
             ..default()

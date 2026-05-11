@@ -127,6 +127,34 @@ pub fn gen_path_curve(size: u32) -> Image {
     make_image(size, data)
 }
 
+pub fn gen_path_tee(size: u32) -> Image {
+    // Base openings: N | E | S. Vertical path top↔bottom plus an east branch.
+    let mut data = vec![0u8; (size * size * 4) as usize];
+    let s = size as f32;
+    fill_grass(&mut data, size);
+    let half = 0.14 * s;
+    let edge = 0.05 * s;
+    let cx = s / 2.0;
+    let cy = s / 2.0;
+    // vertical trunk (N↔S)
+    for y in 0..size {
+        for x in 0..size {
+            let fy = y as f32;
+            let wave = (fy / s * std::f32::consts::PI * 2.0 * 1.2).sin() * s * 0.04;
+            draw_path_pixel(&mut data, size, x, y, x as f32 - cx + wave, half, edge);
+        }
+    }
+    // east branch (center → east edge)
+    for y in 0..size {
+        for x in (size / 2)..size {
+            let fx = x as f32;
+            let wave = (fx / s * std::f32::consts::PI * 2.0 * 1.2).sin() * s * 0.04;
+            draw_path_pixel(&mut data, size, x, y, y as f32 - cy + wave, half, edge);
+        }
+    }
+    make_image(size, data)
+}
+
 pub fn gen_key(size: u32) -> Image {
     let mut data = vec![0u8; (size * size * 4) as usize];
     let s = size as f32;
