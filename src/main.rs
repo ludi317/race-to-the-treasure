@@ -191,7 +191,7 @@ fn world_to_cell(world: Vec2) -> Option<IVec2> {
     }
 }
 
-fn is_legal(board: &Board, ogre: &OgreTrack, cell: IVec2, card: PathCard) -> bool {
+fn is_legal(board: &Board, cell: IVec2, card: PathCard) -> bool {
     if cell.x < 0 || cell.x >= GRID_W || cell.y < 0 || cell.y >= GRID_H {
         return false;
     }
@@ -200,10 +200,6 @@ fn is_legal(board: &Board, ogre: &OgreTrack, cell: IVec2, card: PathCard) -> boo
     }
     // Column G is the Ogre's Path — path cards cannot land there, except on END (G7).
     if cell.x == OGRE_COL && cell != END_CELL {
-        return false;
-    }
-    // END is legal only once the ogre has NOT already claimed it.
-    if cell == END_CELL && ogre.placed >= OGRE_TRACK_LEN {
         return false;
     }
     if !board.any_card() {
@@ -580,7 +576,7 @@ fn input_system(
         };
 
         let card_now = current.card.unwrap();
-        if is_legal(&board, &ogre, cell, card_now) {
+        if is_legal(&board, cell, card_now) {
             board.set(cell, card_now);
             // collect key or snack
             if board.keys.contains(&cell) {
@@ -610,7 +606,6 @@ fn ghost_system(
     phase: Res<Phase>,
     current: Res<CurrentDraw>,
     board: Res<Board>,
-    ogre: Res<OgreTrack>,
     handles: Option<Res<SpriteHandles>>,
     windows: Query<&Window, With<PrimaryWindow>>,
     cameras: Query<(&Camera, &GlobalTransform), With<Camera2d>>,
@@ -643,7 +638,7 @@ fn ghost_system(
         return;
     };
     let pos = cell_to_world(cell);
-    let alpha = if is_legal(&board, &ogre, cell, card) {
+    let alpha = if is_legal(&board, cell, card) {
         0.75
     } else {
         0.3
