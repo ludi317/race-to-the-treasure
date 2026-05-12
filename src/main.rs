@@ -533,6 +533,12 @@ fn input_system(
         }
     }
 
+    // Use snack
+    if keys.just_pressed(KeyCode::Digit1) && board.snacks_available > 0 && ogre.placed > 0 {
+        board.snacks_available -= 1;
+        ogre.placed -= 1;
+    }
+
     if *phase != Phase::PlacingPath {
         return;
     }
@@ -544,11 +550,7 @@ fn input_system(
         current.card = Some(card.rotated());
     }
 
-    // Use snack
-    if keys.just_pressed(KeyCode::Digit1) && board.snacks_available > 0 && ogre.placed > 0 {
-        board.snacks_available -= 1;
-        ogre.placed -= 1;
-    }
+
 
     // Escape discards this card (players give up on placing)
     if keys.just_pressed(KeyCode::Escape) {
