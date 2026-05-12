@@ -498,6 +498,48 @@ fn redraw_board(
             BoardViz,
         ));
     }
+
+    // Collected keys + snack displayed along the bottom of the screen.
+    // Keys: bright once collected, dim while still needed.
+    // Snack: bright only while held; absent otherwise.
+    {
+        let slot_size = CELL * 0.55;
+        let spacing = slot_size + 12.0;
+        let key_count = KEYS_NEEDED as i32;
+        let total_slots = key_count + 1; // +1 for the snack
+        let total_w = spacing * total_slots as f32;
+        let y = -CELL * GRID_H as f32 / 2.0 - 48.0;
+
+        for i in 0..key_count {
+            let x = -total_w / 2.0 + spacing * (i as f32 + 0.5);
+            let collected = (i as u32) < board.keys_collected;
+            let alpha = if collected { 1.0 } else { 0.25 };
+            commands.spawn((
+                Sprite {
+                    image: handles.key.clone(),
+                    color: Color::srgba(1.0, 1.0, 1.0, alpha),
+                    custom_size: Some(Vec2::splat(slot_size)),
+                    ..default()
+                },
+                Transform::from_xyz(x, y, 1.0),
+                BoardViz,
+            ));
+        }
+
+        // Snack slot (after the last key).
+        let snack_x = -total_w / 2.0 + spacing * (key_count as f32 + 0.5);
+        if board.snacks_available > 0 {
+            commands.spawn((
+                Sprite {
+                    image: handles.snack.clone(),
+                    custom_size: Some(Vec2::splat(slot_size)),
+                    ..default()
+                },
+                Transform::from_xyz(snack_x, y, 1.0),
+                BoardViz,
+            ));
+        }
+    }
 }
 
 fn input_system(
@@ -654,44 +696,17 @@ fn ghost_system(
     spawn_card_on(&mut commands, &handles, pos, card, alpha, true, 3.0);
 }
 
-fn hud_system(
-    phase: Res<Phase>,
-    current: Res<CurrentDraw>,
-    deck: Res<Deck>,
-    board: Res<Board>,
-    ogre: Res<OgreTrack>,
-    mut q: Query<&mut Text2d, With<HudText>>,
-) {
+fn hud_system(phase: Res<Phase>, mut q: Query<&mut Text2d, With<HudText>>) {
     let Ok(mut text) = q.get_single_mut() else {
         return;
     };
-    let status = match *phase {
-        Phase::WaitingDraw => "Press SPACE to draw a card".to_string(),
-        Phase::PlacingPath => {
-            let shape = match current.card.unwrap().shape {
-                Shape::Straight => "STRAIGHT",
-                Shape::Curve => "CURVE",
-                Shape::Tee => "T-SHAPE",
-            };
-            format!(
-                "Placing {} (rot {}). R to rotate, click to place, ESC to discard.",
-                shape,
-                current.card.unwrap().rotation
-            )
-        }
-        Phase::Won => "YOU WIN! Treasure secured!".to_string(),
-        Phase::LostOgre => "THE OGRE WINS! Better luck next time.".to_string(),
-    };
-    text.0 = format!(
-        "{}\nKeys: {}/{}   Snacks: {}   Ogre: {}/{}   Deck: {}",
-        status,
-        board.keys_collected,
-        KEYS_NEEDED,
-        board.snacks_available,
-        ogre.placed,
-        OGRE_TRACK_LEN,
-        deck.cards.len()
-    );
+    text.0 = match *phase {
+        Phase::WaitingDraw => "Press SPACE to draw a card",
+        Phase::PlacingPath => "R to rotate, click to place, ESC to discard",
+        Phase::Won => "YOU WIN! Treasure secured!",
+        Phase::LostOgre => "THE OGRE WINS! Better luck next time.",
+    }
+    .to_string();
 }
 
 fn main() {
