@@ -9,10 +9,6 @@ const PATH_TAN_EDGE: [u8; 4] = [180, 150, 100, 255];
 const KEY_RED: [u8; 4] = [200, 55, 50, 255];
 const KEY_RED_DARK: [u8; 4] = [140, 30, 28, 255];
 const KEY_GOLD: [u8; 4] = [235, 190, 60, 255];
-const OGRE_BG: [u8; 4] = [25, 20, 15, 255];
-const OGRE_FACE: [u8; 4] = [120, 160, 70, 255];
-const OGRE_HAIR: [u8; 4] = [230, 220, 210, 255];
-const OGRE_EYE: [u8; 4] = [30, 18, 10, 255];
 const SNACK_BROWN: [u8; 4] = [145, 95, 50, 255];
 const SNACK_DARK: [u8; 4] = [95, 60, 30, 255];
 const CHEST_WOOD: [u8; 4] = [120, 75, 40, 255];
@@ -199,60 +195,6 @@ pub fn gen_key(size: u32) -> Image {
                 && fy < shaft_y1 + s * 0.05;
             if in_bow || in_shaft || tooth1 || tooth2 {
                 put(&mut data, size, x, y, KEY_GOLD);
-            }
-        }
-    }
-    make_image(size, data)
-}
-
-pub fn gen_ogre(size: u32) -> Image {
-    let mut data = vec![0u8; (size * size * 4) as usize];
-    let s = size as f32;
-    fill(&mut data, size, OGRE_BG);
-    let cx = s * 0.5;
-    let cy = s * 0.55;
-    let rx = s * 0.38;
-    let ry = s * 0.33;
-    // face
-    for y in 0..size {
-        for x in 0..size {
-            let dx = (x as f32 - cx) / rx;
-            let dy = (y as f32 - cy) / ry;
-            if dx * dx + dy * dy < 1.0 {
-                put(&mut data, size, x, y, OGRE_FACE);
-            }
-        }
-    }
-    // hair/beard tufts
-    let tufts: [(f32, f32, f32); 5] = [
-        (cx - rx * 0.9, cy - ry * 0.1, s * 0.11),
-        (cx + rx * 0.9, cy - ry * 0.1, s * 0.11),
-        (cx - rx * 0.5, cy - ry * 0.9, s * 0.09),
-        (cx + rx * 0.5, cy - ry * 0.9, s * 0.09),
-        (cx, cy + ry * 0.85, s * 0.08),
-    ];
-    for (tcx, tcy, tr) in tufts {
-        for y in 0..size {
-            for x in 0..size {
-                let fx = x as f32;
-                let fy = y as f32;
-                if (fx - tcx).powi(2) + (fy - tcy).powi(2) < tr * tr {
-                    put(&mut data, size, x, y, OGRE_HAIR);
-                }
-            }
-        }
-    }
-    // eyes
-    let eyes = [(cx - rx * 0.32, cy - ry * 0.15), (cx + rx * 0.32, cy - ry * 0.15)];
-    for (ecx, ecy) in eyes {
-        let r = s * 0.05;
-        for y in 0..size {
-            for x in 0..size {
-                let fx = x as f32;
-                let fy = y as f32;
-                if (fx - ecx).powi(2) + (fy - ecy).powi(2) < r * r {
-                    put(&mut data, size, x, y, OGRE_EYE);
-                }
             }
         }
     }

@@ -274,6 +274,7 @@ fn setup(
     mut phase: ResMut<Phase>,
     mut current: ResMut<CurrentDraw>,
     mut images: ResMut<Assets<Image>>,
+    asset_server: Res<AssetServer>,
 ) {
     commands.spawn(Camera2d);
 
@@ -283,7 +284,7 @@ fn setup(
         path_tee: images.add(sprites::gen_path_tee(SPRITE_SIZE)),
         key: images.add(sprites::gen_key(SPRITE_SIZE)),
         snack: images.add(sprites::gen_snack(SPRITE_SIZE)),
-        ogre: images.add(sprites::gen_ogre(SPRITE_SIZE)),
+        ogre: asset_server.load("ogre.png"),
         treasure: images.add(sprites::gen_treasure(SPRITE_SIZE)),
     };
     commands.insert_resource(handles);
