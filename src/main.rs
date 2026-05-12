@@ -202,6 +202,11 @@ fn is_legal(board: &Board, cell: IVec2, card: PathCard) -> bool {
     if cell.x == OGRE_COL && cell != END_CELL {
         return false;
     }
+    // END only becomes legal once the players have collected enough keys — covering
+    // it without keys would trap the game in an unwinnable state.
+    if cell == END_CELL && board.keys_collected < KEYS_NEEDED {
+        return false;
+    }
     if !board.any_card() {
         // First card must be on START and have a West opening (entering from off-board).
         return cell == START_CELL && card.openings() & W != 0;
@@ -596,7 +601,7 @@ fn input_system(
             current.card = None;
             *phase = Phase::WaitingDraw;
 
-            if cell == END_CELL && board.keys_collected >= KEYS_NEEDED {
+            if cell == END_CELL {
                 *phase = Phase::Won;
             }
         }
